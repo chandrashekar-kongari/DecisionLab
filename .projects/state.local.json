@@ -1,0 +1,78 @@
+{
+  "version": 4,
+  "project": {
+    "catalog": "prod",
+    "initializedAt": "2026-10-17T20:18:03.351Z",
+    "merchantDisplayName": null,
+    "merchantId": "acct_1URd6dBVRiMAEzsa",
+    "projectId": "project_61Vb20hHXCIF2v7jT16Vb13z43SQdNorPP3hTZ7XUUqu",
+    "projectName": "decision-lab"
+  },
+  "providers": {
+    "neon": {
+      "accountRequestId": "facctrq_61Vb3mQS5MM7ihGAj16Vb13z43SQdNorPP3hTZ7XUL3o",
+      "configuration": {},
+      "linkedAt": "2026-10-17T22:11:28.653Z",
+      "providerId": "prvdr_61UH8uNXFdoJUJOtT54AC",
+      "providerName": "Neon",
+      "redirectUrl": null,
+      "requestedAt": "2026-10-17T22:11:28.653Z",
+      "status": "complete"
+    },
+    "openrouter": {
+      "accountRequestId": "facctrq_61Vb4Hv0Z9ux83WDp16Vb13z43SQdNorPP3hTZ7XU7aC",
+      "configuration": {},
+      "linkedAt": "2026-10-17T22:44:00.476Z",
+      "providerId": "prvdr_61URImmFACEuDHEx651IO",
+      "providerName": "OpenRouter",
+      "redirectUrl": null,
+      "requestedAt": "2026-10-17T22:44:00.476Z",
+      "status": "complete"
+    }
+  },
+  "resources": {
+    "neon-plan": {
+      "configuration": {},
+      "createdAt": "2026-10-17T22:11:30.025Z",
+      "lastRevealedAt": "2026-10-17T22:11:30.271Z",
+      "lastStatus": "complete",
+      "livemode": true,
+      "name": "neon-plan",
+      "providerId": "prvdr_61UH8uNXFdoJUJOtT54AC",
+      "providerName": "Neon",
+      "resourceId": "fres_61Vb3mT75s87Lfy5H16Vb13z43SQdNorPP3hTZ7XUGwq",
+      "serviceId": "free"
+    },
+    "openrouter-api": {
+      "configuration": {},
+      "createdAt": "2026-10-17T22:44:01.586Z",
+      "lastRevealedAt": "2026-10-17T22:44:08.706Z",
+      "lastStatus": "complete",
+      "livemode": true,
+      "name": "openrouter-api",
+      "providerId": "prvdr_61URImmFACEuDHEx651IO",
+      "providerName": "OpenRouter",
+      "resourceId": "fres_61Vb4HwRiacvO1NX216Vb13z43SQdNorPP3hTZ7XUV8K",
+      "serviceId": "api"
+    },
+    "primary-db": {
+      "configuration": {},
+      "createdAt": "2026-10-17T22:11:43.631Z",
+      "lastRevealedAt": "2026-10-17T22:11:43.870Z",
+      "lastStatus": "complete",
+      "livemode": true,
+      "name": "primary-db",
+      "providerId": "prvdr_61UH8uNXFdoJUJOtT54AC",
+      "providerName": "Neon",
+      "resourceId": "fres_61Vb3mgt4SLHPhx6O16Vb13z43SQdNorPP3hTZ7XUPui",
+      "serviceId": "postgres"
+    }
+  },
+  "managedProjectVariableEnvKeys": {
+    ".env": [
+      "STRIPE_SECRET_KEY",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "SUPABASE_URL"
+    ]
+  }
+}

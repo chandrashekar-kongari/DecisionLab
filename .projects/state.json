@@ -1,0 +1,75 @@
+{
+  "version": 2,
+  "providers": {
+    "neon": {
+      "name": "Neon"
+    },
+    "openrouter": {
+      "name": "OpenRouter"
+    }
+  },
+  "resources": {
+    "neon-plan": {
+      "livemode": true,
+      "name": "neon-plan",
+      "providerName": "Neon",
+      "serviceId": "free"
+    },
+    "openrouter-api": {
+      "livemode": true,
+      "name": "openrouter-api",
+      "providerName": "OpenRouter",
+      "serviceId": "api"
+    },
+    "primary-db": {
+      "livemode": true,
+      "name": "primary-db",
+      "providerName": "Neon",
+      "serviceId": "postgres"
+    }
+  },
+  "environments": {
+    "default": {
+      "output": ".env",
+      "resources": [
+        {
+          "resourceName": "neon-plan"
+        },
+        {
+          "resourceName": "openrouter-api"
+        },
+        {
+          "resourceName": "primary-db"
+        }
+      ],
+      "variables": [
+        {
+          "variableName": "stripe-secret-key",
+          "envKey": "STRIPE_SECRET_KEY"
+        },
+        {
+          "variableName": "supabase-service-role",
+          "envKey": "SUPABASE_SERVICE_ROLE_KEY"
+        },
+        {
+          "variableName": "supabase-url",
+          "envKey": "SUPABASE_URL"
+        }
+      ]
+    }
+  },
+  "variables": {
+    "stripe-secret-key": {
+      "name": "stripe-secret-key",
+      "backendId": "fprjvar_61Vb52Y7nFppMLM7H16Vb13z43SQdNorPP3hTZ7XUWq0"
+    },
+    "supabase-service-role": {
+      "name": "supabase-service-role",
+      "backendId": "fprjvar_61Vb57v7gtu5mOeGS16Vb13z43SQdNorPP3hTZ7XUFto"
+    },
+    "supabase-url": {
+      "name": "supabase-url",
+      "backendId": "fprjvar_61Vb57tNO6GL7IwTA16Vb13z43SQdNorPP3hTZ7XUKuO"
+    }
+  }
+}
