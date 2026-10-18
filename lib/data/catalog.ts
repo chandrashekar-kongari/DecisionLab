@@ -151,6 +151,26 @@ export function tablesForDataset(dataset: BusinessDataset): DataTableName[] {
 }
 
 export function datasetNarrative(dataset: BusinessDataset) {
+  if (dataset.source === "mcp") {
+    const stripeConnected = dataset.stripeConnected !== false;
+    const supabaseConnected = dataset.supabaseConnected !== false;
+    const missingCredentials = dataset.missingCredentials ?? [];
+    return {
+      sampleData: false,
+      demoData: false,
+      stripeConnected,
+      supabaseConnected,
+      supabaseSchemaReady: dataset.supabaseSchemaReady !== false,
+      missingCredentials,
+      label: "MCP account data",
+      note: mcpNote(
+        stripeConnected,
+        supabaseConnected,
+        dataset.supabaseSchemaReady !== false,
+        missingCredentials,
+      ),
+    };
+  }
   if (dataset.source === "synthetic") {
     return {
       sampleData: true,
@@ -165,6 +185,28 @@ export function datasetNarrative(dataset: BusinessDataset) {
     label: "demo account data",
     note: "These records are AcmeFlow demo data from Stripe test mode and Supabase, not a production customer account.",
   };
+}
+
+function mcpNote(
+  stripeConnected: boolean,
+  supabaseConnected: boolean,
+  schemaReady: boolean,
+  missingCredentials: string[],
+): string {
+  const assumptions =
+    "Sales capacity and monthly marketing spend are workspace assumptions, not account records.";
+  if (stripeConnected && supabaseConnected && !schemaReady) {
+    return `Customers, subscriptions, invoices, payments, and pricing came from the connected Stripe test-mode account. Activity, tickets, usage, and historical experiments are empty until scripts/demo/supabase-seed.sql is applied in the Supabase SQL editor. ${assumptions}`;
+  }
+  if (stripeConnected && supabaseConnected) {
+    return `These records came from the connected Stripe test-mode account and Supabase project. ${assumptions}`;
+  }
+  if (stripeConnected) {
+    const missing = missingCredentials.join(", ");
+    return `Customers, subscriptions, invoices, payments, and pricing came from the connected Stripe test-mode account. Activity, tickets, usage, and historical experiments are empty until ${missing} are set. ${assumptions}`;
+  }
+  const missing = missingCredentials.join(", ");
+  return `Activity, tickets, usage, and historical experiments came from Supabase. Stripe customers, subscriptions, invoices, and payments are empty until ${missing} is set. ${assumptions}`;
 }
 
 export function schemaForTables(tables: DataTableName[]): Record<string, string[]> {

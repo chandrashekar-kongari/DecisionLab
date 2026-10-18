@@ -22,11 +22,7 @@ export function DataToolCard({ args, result, status }: ToolProps) {
         <span className="text-muted-foreground">
           {" "}
           ·{" "}
-          {running
-            ? "Reading data…"
-            : data?.demoData === true
-              ? "Demo data"
-              : "Sample data"}
+          {running ? "Reading data…" : dataSourceLabel(data)}
         </span>
       </p>
       {data ? (
@@ -245,6 +241,19 @@ export function RunToolCard({ result }: ToolProps) {
       ) : null}
     </article>
   );
+}
+
+function dataSourceLabel(data: Record<string, unknown> | null): string {
+  if (!data) return "Sample data";
+  if (data.ok === false && typeof data.error === "string") return data.error;
+  if (data.stripeConnected === true && data.supabaseConnected === true) {
+    return "Stripe and Supabase";
+  }
+  if (data.stripeConnected === true) return "Stripe";
+  if (data.supabaseConnected === true) return "Supabase";
+  if (data.source === "mcp") return "Account data";
+  if (data.demoData === true) return "Demo data";
+  return "Sample data";
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

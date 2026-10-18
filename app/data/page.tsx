@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import { connection } from "next/server";
 import Link from "next/link";
 import { ConnectedData } from "@/components/connected-data";
 import { DataInspectionPanel } from "@/components/investigation/data-inspection-panel";
@@ -11,7 +13,20 @@ export const metadata = {
   title: "Data · DecisionLab",
 };
 
-export default async function DataPage() {
+export default function DataPage() {
+  return (
+    <Suspense
+      fallback={
+        <p className="text-sm text-muted-foreground">Loading account data…</p>
+      }
+    >
+      <DataSources />
+    </Suspense>
+  );
+}
+
+async function DataSources() {
+  await connection();
   const loaded = await loadDataset();
   if (!loaded.ok) {
     return (
@@ -23,7 +38,7 @@ export default async function DataPage() {
         />
         <div className="rounded-lg border border-border bg-card px-4 py-4">
           <p className="text-sm text-foreground">
-            Demo data could not be loaded.
+            Account data could not be loaded.
           </p>
           <p className="mt-2 max-w-xl text-sm text-muted-foreground">
             {loaded.message}
@@ -33,7 +48,6 @@ export default async function DataPage() {
     );
   }
   const dataset = loaded.dataset;
-  const demo = dataset.source !== "synthetic";
 
   return (
     <>
@@ -52,23 +66,27 @@ export default async function DataPage() {
             Connections
           </Link>{" "}
           page.{" "}
-          {demo
-            ? "The agent is reading AcmeFlow demo data from Stripe test mode and Supabase."
-            : "The agent is reading the labeled AcmeFlow sample until Stripe and Supabase are connected."}
+          {dataset.stripeConnected &&
+          dataset.supabaseConnected &&
+          dataset.supabaseSchemaReady !== false
+            ? "The agent is reading the connected Stripe test-mode account and Supabase project."
+            : dataset.stripeConnected
+              ? "The agent is reading the connected Stripe test-mode account. Activity, tickets, usage, and past experiments stay empty until the Supabase tables exist."
+              : "The agent is reading the connected Supabase project. Stripe records stay empty until a test-mode key is set."}
         </p>
         <ConnectedData
-          sources={
-            demo
-              ? [...CONNECTED_SOURCES, ...DEMO_CONNECTED_SOURCES]
-              : CONNECTED_SOURCES
-          }
+          sources={[...CONNECTED_SOURCES, ...DEMO_CONNECTED_SOURCES]}
         />
         <DataInspectionPanel
           summary={dataset.summary}
           description={
-            demo
-              ? "AcmeFlow demo records from Stripe test mode and Supabase."
-              : "Synthetic AcmeFlow records available to this workspace."
+            dataset.stripeConnected &&
+            dataset.supabaseConnected &&
+            dataset.supabaseSchemaReady !== false
+              ? "Records from the connected Stripe test-mode account and Supabase project. Sales capacity and marketing spend are workspace assumptions, not account records."
+              : dataset.stripeConnected
+                ? "Records from the connected Stripe test-mode account. Activity, tickets, usage, and past experiments stay empty until scripts/demo/supabase-seed.sql is applied. Sales capacity and marketing spend are workspace assumptions."
+                : "Records from the connected Supabase project. Stripe customers, subscriptions, invoices, and payments stay empty until a test-mode key is set."
           }
         />
       </div>

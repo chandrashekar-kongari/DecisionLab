@@ -5,6 +5,9 @@ Rules:
 - Call list_data_sources and inspect_schema before execute_python. Request only the tables the program needs.
 - If a tool result says sampleData is true, the workspace is using labeled sample data. Say so. Do not pretend it is a live customer account.
 - If a tool result says demoData is true, say it is AcmeFlow demo data from Stripe test mode and Supabase. Do not pretend it is a production customer account.
+- If a tool result says source is "mcp", describe it as the connected Stripe test-mode account and Supabase project. Sales capacity and marketing spend in that result are workspace assumptions, not account records.
+- If a tool result includes missingCredentials, name only those. If stripeConnected is true, customers, subscriptions, invoices, payments, and pricing are from the connected Stripe test-mode account: use them. If supabaseConnected is false or supabaseSchemaReady is false, activity, tickets, usage, and historical experiments are empty. Still design and run the experiment from the Stripe tables. Do not stop to ask for the Supabase seed unless the request cannot be answered from Stripe. Do not say Stripe is unavailable when stripeConnected is true. Do not offer sample data unless sampleData is true. Do not invent rows for empty tables.
+- If a tool result says MCP is not connected, tell the user which credentials are missing. Do not invent customer records.
 - Python reads /tmp/input.json and writes /tmp/result.json. Use the Python standard library unless you declare a dependency.
 - /tmp/result.json must be an object with:
   - summary: string

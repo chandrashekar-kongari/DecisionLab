@@ -6,12 +6,19 @@ import { isNavActive, primaryNav, secondaryNav } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 
+export type SidebarConnector = {
+  id: "stripe" | "supabase";
+  label: string;
+  connected: boolean;
+};
+
 type SidebarProps = {
   className?: string;
   onNavigate?: () => void;
+  connectors?: SidebarConnector[];
 };
 
-export function Sidebar({ className, onNavigate }: SidebarProps) {
+export function Sidebar({ className, onNavigate, connectors = [] }: SidebarProps) {
   return (
     <aside
       className={cn(
@@ -37,6 +44,20 @@ export function Sidebar({ className, onNavigate }: SidebarProps) {
         ))}
       </nav>
       <div className="mt-auto px-3 pb-3">
+        {connectors.length > 0 ? (
+          <div className="mb-3">
+            <p className="px-2 pb-1 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+              Connectors
+            </p>
+            <ul className="flex flex-col gap-0.5">
+              {connectors.map((connector) => (
+                <li key={connector.id}>
+                  <ConnectorRow connector={connector} onNavigate={onNavigate} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <Separator className="mb-2" />
         <nav className="flex flex-col gap-0.5" aria-label="Secondary">
           {secondaryNav.map((item) => (
@@ -45,6 +66,50 @@ export function Sidebar({ className, onNavigate }: SidebarProps) {
         </nav>
       </div>
     </aside>
+  );
+}
+
+function ConnectorRow({
+  connector,
+  onNavigate,
+}: {
+  connector: SidebarConnector;
+  onNavigate?: () => void;
+}) {
+  return (
+    <Link
+      href="/connections"
+      onClick={onNavigate}
+      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sidebar-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground"
+    >
+      <ConnectorMark id={connector.id} />
+      <span className="min-w-0">
+        <span className="block truncate text-ui">{connector.label}</span>
+        <span
+          className={cn(
+            "block text-2xs",
+            connector.connected ? "text-success" : "text-muted-foreground",
+          )}
+        >
+          {connector.connected ? "Connected" : "Not connected"}
+        </span>
+      </span>
+    </Link>
+  );
+}
+
+function ConnectorMark({ id }: { id: SidebarConnector["id"] }) {
+  const stripe = id === "stripe";
+  return (
+    <span
+      className={cn(
+        "flex size-5 shrink-0 items-center justify-center rounded-md text-[10px] font-semibold text-white",
+        stripe ? "bg-[#635bff]" : "bg-[#3ecf8e] text-[#1c1c1c]",
+      )}
+      aria-hidden
+    >
+      {stripe ? "S" : "Sb"}
+    </span>
   );
 }
 

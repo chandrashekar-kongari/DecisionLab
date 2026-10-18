@@ -80,44 +80,93 @@ export async function loadSupabaseDemo(): Promise<SupabaseDemoSlice> {
     select<ExperimentRow>(supabase, "historical_experiments"),
   ]);
 
+  return mapSupabaseRows({ customers, activity, tickets, usage, experiments });
+}
+
+export function mapSupabaseRows(input: {
+  customers: unknown[];
+  activity: unknown[];
+  tickets: unknown[];
+  usage: unknown[];
+  experiments: unknown[];
+}): SupabaseDemoSlice {
   return {
-    customers: customers.map((row) => ({
-      stripeCustomerId: row.stripe_customer_id,
-      name: row.name,
-      segment: segmentOf(row.segment),
-      cohort: row.cohort,
-    })),
-    activity: activity.map((row) => ({
-      customerId: row.stripe_customer_id,
-      lastSeenAt: row.last_seen_at.slice(0, 10),
-      loginCount30d: Number(row.login_count_30d),
-      featureAdoption: Number(row.feature_adoption),
-    })),
-    tickets: tickets.map((row) => ({
-      id: row.id,
-      customerId: row.stripe_customer_id,
-      status: row.status === "closed" ? "closed" : "open",
-      topic: topicOf(row.topic),
-      sentiment: sentimentOf(row.sentiment),
-      openedAt: row.opened_at.slice(0, 10),
-      summary: row.summary,
-    })),
-    usage: usage.map((row) => ({
-      customerId: row.stripe_customer_id,
-      period: row.period.slice(0, 10),
-      events: Number(row.events),
-      seats: Number(row.seats),
-    })),
-    experiments: experiments.map((row) => ({
-      id: row.id,
-      name: row.name,
-      strategy: row.strategy,
-      startedAt: row.started_at.slice(0, 10),
-      endedAt: row.ended_at.slice(0, 10),
-      outcome: row.outcome,
-      metricDelta: Number(row.metric_delta),
-    })),
+    customers: input.customers.flatMap((row) => {
+      const record = asRow(row);
+      const stripeCustomerId = text(record.stripe_customer_id);
+      if (!stripeCustomerId) return [];
+      return [{
+        stripeCustomerId,
+        name: text(record.name),
+        segment: segmentOf(text(record.segment)),
+        cohort: text(record.cohort),
+      }];
+    }),
+    activity: input.activity.flatMap((row) => {
+      const record = asRow(row);
+      const customerId = text(record.stripe_customer_id);
+      if (!customerId) return [];
+      return [{
+        customerId,
+        lastSeenAt: day(record.last_seen_at),
+        loginCount30d: Number(record.login_count_30d) || 0,
+        featureAdoption: Number(record.feature_adoption) || 0,
+      }];
+    }),
+    tickets: input.tickets.flatMap((row) => {
+      const record = asRow(row);
+      const id = text(record.id);
+      const customerId = text(record.stripe_customer_id);
+      if (!id || !customerId) return [];
+      return [{
+        id,
+        customerId,
+        status: text(record.status) === "closed" ? "closed" as const : "open" as const,
+        topic: topicOf(text(record.topic)),
+        sentiment: sentimentOf(text(record.sentiment)),
+        openedAt: day(record.opened_at),
+        summary: text(record.summary),
+      }];
+    }),
+    usage: input.usage.flatMap((row) => {
+      const record = asRow(row);
+      const customerId = text(record.stripe_customer_id);
+      if (!customerId) return [];
+      return [{
+        customerId,
+        period: day(record.period),
+        events: Number(record.events) || 0,
+        seats: Number(record.seats) || 0,
+      }];
+    }),
+    experiments: input.experiments.flatMap((row) => {
+      const record = asRow(row);
+      const id = text(record.id);
+      if (!id) return [];
+      return [{
+        id,
+        name: text(record.name),
+        strategy: text(record.strategy),
+        startedAt: day(record.started_at),
+        endedAt: day(record.ended_at),
+        outcome: text(record.outcome),
+        metricDelta: Number(record.metric_delta) || 0,
+      }];
+    }),
   };
+}
+
+function asRow(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function day(value: unknown): string {
+  const raw = text(value);
+  return raw ? raw.slice(0, 10) : "";
 }
 
 async function select<T>(supabase: SupabaseClient, table: string): Promise<T[]> {

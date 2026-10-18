@@ -212,6 +212,10 @@ export type BusinessDataset = {
   salesCapacity: SalesCapacity;
   monthlyMarketingSpend: number;
   summary: DatasetSummary;
+  stripeConnected?: boolean;
+  supabaseConnected?: boolean;
+  supabaseSchemaReady?: boolean;
+  missingCredentials?: string[];
 };
 
 export type AgentStep = {

@@ -11,6 +11,7 @@
     "seed:demo": "tsx scripts/demo/stripe-seed.ts"
   },
   "dependencies": {
+    "@ai-sdk/mcp": "2.0.78",
     "@ai-sdk/react": "^4.0.147",
     "@assistant-ui/ai-sdk": "^0.0.13",
     "@assistant-ui/react": "^0.15.29",

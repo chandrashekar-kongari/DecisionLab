@@ -1,6 +1,7 @@
 import { tool, zodSchema } from "ai";
 import { z } from "zod";
 import { getBusinessDataProvider } from "@/lib/data/business-data";
+import { publicError } from "@/lib/data/connections";
 import {
   DATA_TABLES,
   TABLE_CATALOG,
@@ -26,7 +27,10 @@ import {
   saveExperiment,
   updateExperiment,
 } from "@/lib/experiments/store";
-import { ExperimentError, type ExperimentRecord } from "@/lib/experiments/types";
+import {
+  ExperimentError,
+  type ExperimentRecord,
+} from "@/lib/experiments/types";
 import { executePythonJob } from "@/lib/sandbox/python-runner";
 
 const tableSchema = z.enum(DATA_TABLES);
@@ -42,13 +46,15 @@ export function createAgentTools() {
       description: "List datasets the workspace can upload into a sandbox.",
       inputSchema: zodSchema(z.object({})),
       execute: async () => {
-        const dataset = await getBusinessDataProvider().load();
+        const loaded = await readDataset();
+        if (!loaded.ok) return loaded;
+        const dataset = loaded.dataset;
         const narrative = datasetNarrative(dataset);
         return {
           ...narrative,
           source: dataset.source,
           company: dataset.company,
-          provider: narrative.demoData ? "Stripe test mode and Supabase" : "AcmeFlow synthetic",
+          provider: providerLabel(dataset),
           tables: tablesForDataset(dataset).map((name) => ({
             name,
             label: TABLE_CATALOG[name].label,
@@ -60,7 +66,8 @@ export function createAgentTools() {
       },
     }),
     inspect_schema: tool({
-      description: "Return columns and a short sample for one data table. Does not run an experiment.",
+      description:
+        "Return columns and a short sample for one data table. Does not run an experiment.",
       inputSchema: zodSchema(
         z.object({
           table: tableSchema,
@@ -68,20 +75,24 @@ export function createAgentTools() {
         }),
       ),
       execute: async ({ table, sampleSize }) => {
-        const dataset = await getBusinessDataProvider().load();
+        const loaded = await readDataset();
+        if (!loaded.ok) return loaded;
+        const dataset = loaded.dataset;
         const narrative = datasetNarrative(dataset);
+        const blocked = blockedTable(dataset, table);
         return {
           ...narrative,
           source: dataset.source,
           table,
           columns: TABLE_CATALOG[table].columns,
-          sample: unavailableDemoTable(dataset, table) ? [] : sampleRows(dataset, table, sampleSize),
-          ...(unavailableDemoTable(dataset, table) ? { note: DEMO_TABLE_NOTE } : {}),
+          sample: blocked ? [] : sampleRows(dataset, table, sampleSize),
+          ...(blocked ? { note: blocked } : {}),
         };
       },
     }),
     sample_rows: tool({
-      description: "Return a few rows from one sample table so you can see value shapes before writing Python.",
+      description:
+        "Return a few rows from one sample table so you can see value shapes before writing Python.",
       inputSchema: zodSchema(
         z.object({
           table: tableSchema,
@@ -89,13 +100,16 @@ export function createAgentTools() {
         }),
       ),
       execute: async ({ table, limit }) => {
-        const dataset = await getBusinessDataProvider().load();
+        const loaded = await readDataset();
+        if (!loaded.ok) return loaded;
+        const dataset = loaded.dataset;
         const narrative = datasetNarrative(dataset);
+        const blocked = blockedTable(dataset, table);
         return {
           ...narrative,
           table,
-          rows: unavailableDemoTable(dataset, table) ? [] : sampleRows(dataset, table, limit),
-          ...(unavailableDemoTable(dataset, table) ? { note: DEMO_TABLE_NOTE } : {}),
+          rows: blocked ? [] : sampleRows(dataset, table, limit),
+          ...(blocked ? { note: blocked } : {}),
         };
       },
     }),
@@ -114,11 +128,14 @@ export function createAgentTools() {
         if (executions > 3) {
           return {
             ok: false,
-            error: "This turn already ran Python 3 times. Explain the last error instead of executing again.",
+            error:
+              "This turn already ran Python 3 times. Explain the last error instead of executing again.",
           };
         }
         const selected = uniqueTables(tables);
-        const dataset = await getBusinessDataProvider().load();
+        const loaded = await readDataset();
+        if (!loaded.ok) return loaded;
+        const dataset = loaded.dataset;
         const job = await executePythonJob({
           source,
           dependencies,
@@ -165,9 +182,10 @@ export function createAgentTools() {
           return {
             ok: true,
             experiment: summarize(saved),
-            message: saved.status === "draft"
-              ? "Saved as a draft. Ask the user to activate it before recurring runs."
-              : "Saved a new validated version. Recurring runs stay off until the user activates or resumes the experiment.",
+            message:
+              saved.status === "draft"
+                ? "Saved as a draft. Ask the user to activate it before recurring runs."
+                : "Saved a new validated version. Recurring runs stay off until the user activates or resumes the experiment.",
           };
         } catch (error) {
           return { ok: false, error: errorMessage(error) };
@@ -175,19 +193,23 @@ export function createAgentTools() {
       },
     }),
     list_experiments: tool({
-      description: "List saved experiments and their status, schedule, and latest insight.",
+      description:
+        "List saved experiments and their status, schedule, and latest insight.",
       inputSchema: zodSchema(z.object({})),
       execute: async () => ({
         experiments: (await listExperiments()).map(summarize),
       }),
     }),
     get_experiment: tool({
-      description: "Load one experiment, including the current Python source and recent runs.",
+      description:
+        "Load one experiment, including the current Python source and recent runs.",
       inputSchema: zodSchema(z.object({ experimentId: z.string().min(1) })),
       execute: async ({ experimentId }) => {
         const experiment = await getExperiment(experimentId);
         if (!experiment) return { ok: false, error: "Experiment not found." };
-        const version = experiment.currentVersionId ? await getVersion(experiment.currentVersionId) : null;
+        const version = experiment.currentVersionId
+          ? await getVersion(experiment.currentVersionId)
+          : null;
         return {
           ok: true,
           experiment: summarize(experiment),
@@ -231,7 +253,10 @@ export function createAgentTools() {
       inputSchema: zodSchema(z.object({ experimentId: z.string().min(1) })),
       execute: async ({ experimentId }) => {
         try {
-          return { ok: true, experiment: summarize(await pauseExperiment(experimentId)) };
+          return {
+            ok: true,
+            experiment: summarize(await pauseExperiment(experimentId)),
+          };
         } catch (error) {
           return { ok: false, error: errorMessage(error) };
         }
@@ -242,14 +267,18 @@ export function createAgentTools() {
       inputSchema: zodSchema(z.object({ experimentId: z.string().min(1) })),
       execute: async ({ experimentId }) => {
         try {
-          return { ok: true, experiment: summarize(await resumeExperiment(experimentId)) };
+          return {
+            ok: true,
+            experiment: summarize(await resumeExperiment(experimentId)),
+          };
         } catch (error) {
           return { ok: false, error: errorMessage(error) };
         }
       },
     }),
     run_experiment_now: tool({
-      description: "Run a saved experiment immediately in CreateOS, using its validated Python and the current workspace data.",
+      description:
+        "Run a saved experiment immediately in CreateOS, using its validated Python and the current workspace data.",
       inputSchema: zodSchema(z.object({ experimentId: z.string().min(1) })),
       execute: async ({ experimentId }) => {
         try {
@@ -288,7 +317,10 @@ export function createAgentTools() {
       inputSchema: zodSchema(z.object({ experimentId: z.string().min(1) })),
       execute: async ({ experimentId }) => {
         try {
-          return { ok: true, experiment: summarize(await activateExperiment(experimentId)) };
+          return {
+            ok: true,
+            experiment: summarize(await activateExperiment(experimentId)),
+          };
         } catch (error) {
           return { ok: false, error: errorMessage(error) };
         }
@@ -338,10 +370,59 @@ function summarize(experiment: ExperimentRecord) {
 }
 
 const DEMO_TABLE_NOTE =
-  "Invoices, payments, activity, tickets, usage, and historical experiments appear after Stripe and Supabase are connected.";
+  "Invoices and payments come from Stripe. Activity, tickets, usage, and historical experiments stay empty until those Supabase tables exist.";
 
-function unavailableDemoTable(dataset: { source: string }, table: DataTableName) {
-  return dataset.source === "synthetic" && isDemoTable(table);
+const SUPABASE_TABLES = new Set<DataTableName>([
+  "customerActivity",
+  "supportTickets",
+  "usageDaily",
+  "historicalExperiments",
+]);
+
+async function readDataset() {
+  try {
+    return {
+      ok: true as const,
+      dataset: await getBusinessDataProvider().load(),
+    };
+  } catch (error) {
+    return { ok: false as const, error: publicError(error) };
+  }
+}
+
+function providerLabel(dataset: {
+  source: string;
+  stripeConnected?: boolean;
+  supabaseConnected?: boolean;
+}) {
+  if (dataset.source === "mcp" && dataset.stripeConnected && dataset.supabaseConnected) {
+    return "Stripe and Supabase MCP";
+  }
+  if (dataset.source === "mcp" && dataset.stripeConnected) return "Stripe MCP";
+  if (dataset.source === "mcp" && dataset.supabaseConnected) return "Supabase MCP";
+  if (dataset.source === "supabase") return "Stripe test mode and Supabase";
+  return "AcmeFlow synthetic";
+}
+
+function blockedTable(dataset: {
+  source: string;
+  supabaseConnected?: boolean;
+  supabaseSchemaReady?: boolean;
+  missingCredentials?: string[];
+}, table: DataTableName): string | null {
+  if (dataset.source === "synthetic" && isDemoTable(table)) return DEMO_TABLE_NOTE;
+  if (dataset.supabaseSchemaReady === false && SUPABASE_TABLES.has(table)) {
+    return "This table is empty until scripts/demo/supabase-seed.sql is applied. Stripe customers, subscriptions, pricing, invoices, and payments are still available.";
+  }
+  if (dataset.supabaseConnected === false && SUPABASE_TABLES.has(table)) {
+    const missing = (dataset.missingCredentials ?? []).filter((name) =>
+      name.startsWith("SUPABASE_"),
+    );
+    return missing.length
+      ? `This table is empty until ${missing.join(", ")} are set.`
+      : "This table is empty because Supabase is not connected.";
+  }
+  return null;
 }
 
 function uniqueTables(tables: string[]): DataTableName[] {
@@ -354,6 +435,7 @@ function clipForModel(value: string): string {
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof ExperimentError || error instanceof Error) return error.message;
+  if (error instanceof ExperimentError || error instanceof Error)
+    return error.message;
   return "The experiment action failed.";
 }

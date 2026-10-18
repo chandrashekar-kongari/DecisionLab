@@ -1,44 +1,64 @@
+import { Suspense } from "react";
+import { connection } from "next/server";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { describeConnections, publicError } from "@/lib/data/connections";
 import {
-  demoCredentialsReady,
   getBusinessDataProvider,
+  stripeCredentialsReady,
+  supabaseCredentialsReady,
 } from "@/lib/data/business-data";
 
 export const metadata = {
   title: "Connections · DecisionLab",
 };
 
-export default async function ConnectionsPage() {
-  const connections = describeConnections();
-  const ready = demoCredentialsReady();
-  const probe = ready ? await probeDemoData() : null;
-
+export default function ConnectionsPage() {
   return (
     <>
       <PageHeader
         breadcrumb="Connections"
         title="Connections"
-        description="Stripe test mode and Supabase supply the demo account. Until both are set, the agent keeps using the AcmeFlow sample."
+        description="Stripe test mode and Supabase are read separately through MCP. The agent uses whichever side is configured."
       />
+      <Suspense
+        fallback={
+          <p className="text-sm text-muted-foreground">Checking connections…</p>
+        }
+      >
+        <ConnectionStatus />
+      </Suspense>
+    </>
+  );
+}
+
+async function ConnectionStatus() {
+  await connection();
+  const connections = describeConnections();
+  const stripeReady = stripeCredentialsReady();
+  const supabaseReady = supabaseCredentialsReady();
+  const ready = stripeReady || supabaseReady;
+  const probe = ready ? await probeDemoData() : null;
+
+  return (
+    <>
       <ul className="flex flex-col gap-4">
-        {connections.map((connection) => (
+        {connections.map((item) => (
           <li
-            key={connection.id}
+            key={item.id}
             className="rounded-lg border border-border bg-card px-4 py-4"
           >
             <StatusBadge
-              status={connection.connected ? "connected" : "warning"}
+              status={item.connected ? "connected" : "warning"}
             >
-              {connection.label}
+              {item.label}
             </StatusBadge>
             <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-              {connection.summary}
+              {item.summary}
             </p>
-            {connection.connected ? null : (
+            {item.connected ? null : (
               <ol className="mt-3 flex max-w-xl list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
-                {connection.steps.map((step) => (
+                {item.steps.map((step) => (
                   <li key={step}>{step}</li>
                 ))}
               </ol>
@@ -51,14 +71,16 @@ export default async function ConnectionsPage() {
           <p className="text-sm text-foreground">
             {probe?.ok
               ? probe.customers > 0
-                ? `${probe.customers} demo customers are available to the agent.`
-                : "Both credentials are set, and the demo seed has not been loaded yet."
+                ? `${probe.customers} customers are available to the agent.`
+                : stripeReady
+                  ? "Stripe is connected, and the account has no customers yet."
+                  : "Supabase is connected. Stripe customers stay empty until STRIPE_SECRET_KEY is set."
               : probe?.message}
           </p>
           <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-            Apply scripts/demo/supabase-seed.sql in the Supabase SQL editor,
-            then run npm run seed:demo. Add --reset only when you want to delete
-            the existing demo customers and create them again.
+            {supabaseReady
+              ? "Customer activity, tickets, usage, and past experiments stay empty until those tables exist in the Supabase project. Apply scripts/demo/supabase-seed.sql if you want the demo activity tables."
+              : "Customer activity, tickets, usage, and past experiments stay empty until SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF are set. Stripe customers, subscriptions, invoices, and payments are still available."}
           </p>
         </div>
       ) : null}

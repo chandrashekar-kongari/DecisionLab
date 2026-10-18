@@ -24,12 +24,16 @@ export type StripeDemoSlice = {
 export function stripeClient(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error("STRIPE_SECRET_KEY is not set.");
+  assertTestModeStripeKey(key);
+  return new Stripe(key);
+}
+
+export function assertTestModeStripeKey(key: string) {
   if (key.startsWith("sk_live_") || key.startsWith("rk_live_")) {
     throw new Error(
-      "STRIPE_SECRET_KEY is a live-mode key. DecisionLab demos require a test-mode key.",
+      "STRIPE_SECRET_KEY is a live-mode key. DecisionLab requires a test-mode key.",
     );
   }
-  return new Stripe(key);
 }
 
 export async function loadStripeDemo(): Promise<StripeDemoSlice> {
@@ -69,33 +73,49 @@ export async function loadStripeDemo(): Promise<StripeDemoSlice> {
   const demoInvoices = invoices.filter((invoice) =>
     demoIds.has(idOf(invoice.customer) ?? ""),
   );
-  const priceById = new Map(demoPrices.map((price) => [price.id, price]));
-  const productName = new Map(
-    demoProducts.map((product) => [product.id, product.name]),
-  );
+  return mapStripeResources({
+    customers: demoCustomers,
+    subscriptions: demoSubscriptions,
+    products: demoProducts,
+    prices: demoPrices,
+    invoices: demoInvoices,
+    paymentIntents,
+  });
+}
 
-  const pricing = currentPlans(demoPrices, productName);
-  const pricingHistory = priceChanges(demoPrices);
-  const subscriptionRows = demoSubscriptions.map((subscription) =>
+export function mapStripeResources(input: {
+  customers: Stripe.Customer[];
+  subscriptions: Stripe.Subscription[];
+  products: Stripe.Product[];
+  prices: Stripe.Price[];
+  invoices: Stripe.Invoice[];
+  paymentIntents: Stripe.PaymentIntent[];
+}): StripeDemoSlice {
+  const priceById = new Map(input.prices.map((price) => [price.id, price]));
+  const productName = new Map(
+    input.products.map((product) => [product.id, product.name]),
+  );
+  const subscriptionRows = input.subscriptions.map((subscription) =>
     toSubscription(subscription, priceById),
   );
   const subscriptionsByCustomer = groupBy(
     subscriptionRows,
     (row) => row.customerId,
   );
+  const customerIds = new Set(input.customers.map((customer) => customer.id));
 
   return {
-    customers: demoCustomers.map((customer) =>
+    customers: input.customers.map((customer) =>
       toCustomer(customer, subscriptionsByCustomer.get(customer.id) ?? []),
     ),
     subscriptions: subscriptionRows,
-    pricing,
-    pricingHistory,
-    churnEvents: demoSubscriptions
+    pricing: currentPlans(input.prices, productName),
+    pricingHistory: priceChanges(input.prices),
+    churnEvents: input.subscriptions
       .filter((subscription) => subscription.status === "canceled")
       .map(toChurnEvent),
-    invoices: demoInvoices.map(toInvoice),
-    payments: toPayments(demoInvoices, paymentIntents, demoIds),
+    invoices: input.invoices.map(toInvoice),
+    payments: toPayments(input.invoices, input.paymentIntents, customerIds),
   };
 }
 
@@ -103,19 +123,27 @@ function currentPlans(
   prices: Stripe.Price[],
   productName: Map<string, string>,
 ): PricingPlan[] {
+  const explicit = prices.filter(
+    (price) =>
+      price.metadata?.superseded !== "true" &&
+      price.metadata?.current === "true",
+  );
+  const selected = explicit.length
+    ? explicit
+    : prices.filter(
+        (price) =>
+          price.metadata?.superseded !== "true" &&
+          price.active !== false &&
+          price.recurring != null,
+      );
   const plans = new Map<string, PricingPlan>();
-  for (const price of prices) {
-    if (
-      price.metadata?.superseded === "true" ||
-      price.metadata?.current !== "true"
-    )
-      continue;
+  for (const price of selected) {
     const planId = price.metadata?.plan_id || price.id;
     const productId = idOf(price.product) ?? "";
     plans.set(planId, {
       id: planId,
-      name: productName.get(productId) ?? planId,
-      monthlyPrice: dollars(price.unit_amount),
+      name: productName.get(productId) ?? price.nickname ?? planId,
+      monthlyPrice: monthlyAmount(price),
       interval: "month",
     });
   }
@@ -174,7 +202,7 @@ function toSubscription(
     id: subscription.id,
     customerId: idOf(subscription.customer) ?? "",
     planId: price?.metadata?.plan_id || price?.id || "unknown",
-    monthlyPrice: dollars(price?.unit_amount),
+    monthlyPrice: monthlyAmount(price),
     status: mapSubscriptionStatus(subscription.status),
     startedAt:
       subscription.metadata?.demo_started_at ||
@@ -342,6 +370,17 @@ function invoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
 
 function dollars(cents: number | null | undefined): number {
   return Math.round(cents ?? 0) / 100;
+}
+
+function monthlyAmount(price: Stripe.Price | undefined): number {
+  if (!price) return 0;
+  const cents = price.unit_amount ?? 0;
+  const count = price.recurring?.interval_count || 1;
+  const interval = price.recurring?.interval;
+  if (interval === "year") return Math.round(cents / (12 * count)) / 100;
+  if (interval === "week") return Math.round((cents * 52) / (12 * count)) / 100;
+  if (interval === "day") return Math.round((cents * 365) / (12 * count)) / 100;
+  return Math.round(cents / count) / 100;
 }
 
 function dayFromUnix(seconds: number | null | undefined): string | null {

@@ -1,7 +1,9 @@
 import { Suspense, type ReactNode } from "react";
+import { connection } from "next/server";
 import { ContentFrame } from "@/components/content-frame";
 import { MobileNav } from "@/components/mobile-nav";
 import { Sidebar } from "@/components/sidebar";
+import { sidebarConnectors } from "@/lib/data/connections";
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -11,13 +13,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="hidden w-[200px] shrink-0 border-r border-sidebar-border bg-sidebar md:block lg:w-60" />
         }
       >
-        <Sidebar className="hidden md:flex" />
+        <DesktopSidebar />
       </Suspense>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Suspense
           fallback={<div className="h-12 border-b border-border md:hidden" />}
         >
-          <MobileNav />
+          <MobileSidebar />
         </Suspense>
         <Suspense
           fallback={
@@ -29,4 +31,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
     </div>
   );
+}
+
+async function DesktopSidebar() {
+  await connection();
+  return <Sidebar className="hidden md:flex" connectors={sidebarConnectors()} />;
+}
+
+async function MobileSidebar() {
+  await connection();
+  return <MobileNav connectors={sidebarConnectors()} />;
 }

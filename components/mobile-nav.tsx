@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Menu } from "lucide-react";
-import { Sidebar } from "@/components/sidebar";
+import { Sidebar, type SidebarConnector } from "@/components/sidebar";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -13,7 +13,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 
-export function MobileNav() {
+export function MobileNav({ connectors }: { connectors: SidebarConnector[] }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -34,6 +34,7 @@ export function MobileNav() {
           </SheetHeader>
           <Sidebar
             className="h-full w-full border-0"
+            connectors={connectors}
             onNavigate={() => setOpen(false)}
           />
         </SheetContent>

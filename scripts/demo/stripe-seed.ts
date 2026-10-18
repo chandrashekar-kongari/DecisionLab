@@ -1,3 +1,8 @@
+// Seeds the connected Stripe test account and Supabase project with the
+// cohorts DecisionLab experiments compare: failed payments, price cancellations,
+// adoption drop-off, and healthy accounts. Customers stay on the normal Stripe
+// list so Stripe MCP can read them. Run `npm run seed:demo`. Pass `--reset`
+// to delete the previous demo customers first.
 import { mkdir, writeFile } from "node:fs/promises";
 import { loadEnvConfig } from "@next/env";
 import { createClient } from "@supabase/supabase-js";
@@ -253,11 +258,13 @@ async function main() {
   const prices = await ensurePrices(stripe);
   if (reset) await deleteDemoCustomers(stripe);
 
-  const existing = await listDemoCustomers(stripe);
-  const seeded =
-    existing.length > 0
-      ? await reuseCustomers(stripe, existing)
-      : await createCustomers(stripe, prices);
+  const existing = reset ? [] : await listDemoCustomers(stripe);
+  const reused = await reuseCustomers(stripe, existing);
+  const present = new Set(reused.map((row) => row.key));
+  const missing = ACCOUNTS.filter((account) => !present.has(account.key));
+  const created =
+    missing.length > 0 ? await createCustomers(stripe, prices, missing) : [];
+  const seeded = [...reused, ...created];
 
   await writeManifest(seeded);
   await upsertSupabase(supabase, seeded);
@@ -441,79 +448,92 @@ async function reuseCustomers(
 async function createCustomers(
   stripe: Stripe,
   prices: Record<PlanId, string>,
+  accounts: Account[],
 ): Promise<SeededCustomer[]> {
-  const failed = ACCOUNTS.filter(
-    (account) => account.cohort === "failed_payment",
-  );
-  const rest = ACCOUNTS.filter(
-    (account) => account.cohort !== "failed_payment",
-  );
-  const clock = await stripe.testHelpers.testClocks.create({
-    frozen_time: unixDaysAgo(45),
-    name: "decision-lab-failed-payments",
-  });
-
-  const failedRows: SeededCustomer[] = [];
-  for (const account of failed) {
-    const customer = await createCustomer(stripe, account, clock.id);
-    const visa = await attachCard(stripe, customer.id, "tok_visa");
-    const subscription = await stripe.subscriptions.create({
-      customer: customer.id,
-      items: [{ price: prices[account.plan] }],
-      default_payment_method: visa.id,
-      metadata: subscriptionMetadata(account),
-    });
-    const failingToken =
-      account.failure === "insufficient_funds"
-        ? "tok_chargeDeclinedInsufficientFunds"
-        : "tok_chargeCustomerFail";
-    const failing = await attachCard(stripe, customer.id, failingToken);
-    await stripe.subscriptions.update(subscription.id, {
-      default_payment_method: failing.id,
-    });
-    await stripe.customers.update(customer.id, {
-      invoice_settings: { default_payment_method: failing.id },
-    });
-    failedRows.push({
-      key: account.key,
-      account,
-      customerId: customer.id,
-      subscriptionId: subscription.id,
-    });
-  }
-
-  await stripe.testHelpers.testClocks.advance(clock.id, {
-    frozen_time: unixDaysAgo(2),
-  });
-  await waitForClock(stripe, clock.id);
-
-  const otherRows: SeededCustomer[] = [];
-  for (const account of rest) {
+  const rows: SeededCustomer[] = [];
+  for (const account of accounts) {
     const customer = await createCustomer(stripe, account);
-    const visa = await attachCard(stripe, customer.id, "tok_visa");
-    const subscription = await stripe.subscriptions.create({
-      customer: customer.id,
-      items: [{ price: prices[account.plan] }],
-      default_payment_method: visa.id,
-      metadata: subscriptionMetadata(account),
-    });
-    if (account.cohort === "cancellation") {
-      await stripe.subscriptions.cancel(subscription.id, {
-        cancellation_details: {
-          comment: "The Growth price increase was too expensive.",
-          feedback: "too_expensive",
-        },
+    const card = await attachCard(
+      stripe,
+      customer.id,
+      account.cohort === "failed_payment" ? "tok_chargeCustomerFail" : "tok_visa",
+    );
+    let subscription: Stripe.Subscription;
+    if (account.cohort === "failed_payment") {
+      subscription = await createFailedSubscription(stripe, account, customer.id, card.id, prices);
+    } else {
+      subscription = await stripe.subscriptions.create({
+        customer: customer.id,
+        items: [{ price: prices[account.plan] }],
+        default_payment_method: card.id,
+        metadata: subscriptionMetadata(account),
       });
+      if (account.cohort === "cancellation") {
+        await stripe.subscriptions.cancel(subscription.id, {
+          cancellation_details: {
+            comment: "The Growth price increase was too expensive.",
+            feedback: "too_expensive",
+          },
+        });
+      }
     }
-    otherRows.push({
+    rows.push({
       key: account.key,
       account,
       customerId: customer.id,
       subscriptionId: subscription.id,
     });
+    console.log(`Seeded ${account.name} (${account.cohort}).`);
   }
+  return rows;
+}
 
-  return [...failedRows, ...otherRows];
+async function createFailedSubscription(
+  stripe: Stripe,
+  account: Account,
+  customerId: string,
+  paymentMethodId: string,
+  prices: Record<PlanId, string>,
+): Promise<Stripe.Subscription> {
+  try {
+    return await stripe.subscriptions.create({
+      customer: customerId,
+      items: [{ price: prices[account.plan] }],
+      default_payment_method: paymentMethodId,
+      payment_behavior: "allow_incomplete",
+      metadata: subscriptionMetadata(account),
+    });
+  } catch (error) {
+    if (!isCardDecline(error)) throw error;
+    const visa = await attachCard(stripe, customerId, "tok_visa");
+    const subscription = await stripe.subscriptions.create({
+      customer: customerId,
+      items: [{ price: prices[account.plan] }],
+      default_payment_method: visa.id,
+      metadata: subscriptionMetadata(account),
+    });
+    const invoice = await stripe.invoices.create({
+      customer: customerId,
+      subscription: subscription.id,
+      auto_advance: false,
+      collection_method: "charge_automatically",
+    });
+    try {
+      await stripe.invoices.pay(invoice.id, { payment_method: paymentMethodId });
+    } catch (payError) {
+      if (!isCardDecline(payError)) throw payError;
+    }
+    return subscription;
+  }
+}
+
+function isCardDecline(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "type" in error &&
+    (error as { type?: string }).type === "StripeCardError"
+  );
 }
 
 async function createCustomer(
@@ -557,19 +577,6 @@ function subscriptionMetadata(account: Account): Stripe.MetadataParam {
       ? { demo_canceled_at: account.canceledAt, churn_reason: "price" }
       : {}),
   };
-}
-
-async function waitForClock(stripe: Stripe, id: string) {
-  for (let attempt = 0; attempt < 90; attempt += 1) {
-    const clock = await stripe.testHelpers.testClocks.retrieve(id);
-    if (clock.status === "ready") return;
-    if (clock.status === "internal_failure")
-      throw new Error(
-        "Stripe test clock failed while creating past-due invoices.",
-      );
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-  }
-  throw new Error("Stripe test clock did not finish advancing.");
 }
 
 async function writeManifest(rows: SeededCustomer[]) {
@@ -818,10 +825,6 @@ function usageFor(row: SeededCustomer) {
       seats: 8,
     },
   ];
-}
-
-function unixDaysAgo(days: number): number {
-  return Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
 }
 
 main().catch((error: unknown) => {
